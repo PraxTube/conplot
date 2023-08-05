@@ -7,4 +7,3 @@ edition = "2021"
 
 [dependencies]
 drawille = "0.3.0"
-ndarray = "0.15.6"

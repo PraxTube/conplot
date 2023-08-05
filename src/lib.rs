@@ -3,7 +3,6 @@ use std::default::Default;
 
 use drawille::Canvas as BrailleCanvas;
 use drawille::PixelColor;
-use ndarray::prelude::*;
 
 pub mod scale;
 
@@ -25,7 +24,7 @@ enum ChartRangeMethod {
 }
 
 /// Controls the drawing.
-pub struct Chart<'a> {
+pub struct Chart {
     /// Canvas width in points.
     width: u32,
     /// Canvas height in points.
@@ -42,45 +41,40 @@ pub struct Chart<'a> {
     ymax: f32,
     /// The type of y axis ranging used
     y_ranging: ChartRangeMethod,
+    /// Data points to plot
+    data_points: Vec<(f32, f32)>,
     /// Collection of shapes to be presented on the canvas.
-    shapes: Vec<(&'a Shape<'a>, Option<RGB8>)>,
+    appearance: Vec<(Shape, Option<RGB8>)>,
     /// Underlying canvas object.
     canvas: BrailleCanvas,
 }
 
 /// Specifies different kinds of plotted data.
-pub enum Shape<'a> {
-    /// Real value function.
-    Continuous(Box<dyn Fn(f32) -> f32 + 'a>),
-    /// Points of a scatter plot.
-    Points(&'a [(f32, f32)]),
-    /// Points connected with lines.
-    Lines(&'a [(f32, f32)]),
-    /// Points connected in step fashion.
-    Steps(&'a [(f32, f32)]),
-    /// Points represented with bars.
-    Bars(&'a [(f32, f32)]),
+#[derive(Clone)]
+pub enum Shape {
+    Points,
+    Lines,
+    Steps,
+    Bars,
 }
 
 /// Provides an interface for drawing plots.
 pub trait Plot<'a> {
     /// Draws a [line chart](https://en.wikipedia.org/wiki/Line_chart) of points connected by straight line segments.
-    fn lineplot(&'a mut self, shape: &'a Shape) -> &'a mut Chart;
+    fn lineplot(&'a mut self, shape: Shape, color: Option<RGB8>) -> &'a mut Chart;
 }
 
-/// Provides an interface for drawing colored plots.
-pub trait ColorPlot<'a> {
-    /// Draws a [line chart](https://en.wikipedia.org/wiki/Line_chart) of points connected by straight line segments using the specified color
-    fn linecolorplot(&'a mut self, shape: &'a Shape, color: RGB8) -> &'a mut Chart;
+pub trait Data<'a> {
+    fn data(&'a mut self, data_points: Vec<(f32, f32)>) -> &'a mut Chart;
 }
 
-impl<'a> Default for Chart<'a> {
+impl<'a> Default for Chart {
     fn default() -> Self {
         Self::new(120, 60, -10.0, 10.0)
     }
 }
 
-impl<'a> Chart<'a> {
+impl<'a> Chart {
     /// Creates a new `Chart` object.
     ///
     /// # Panics
@@ -104,7 +98,8 @@ impl<'a> Chart<'a> {
             y_ranging: ChartRangeMethod::AutoRange,
             width,
             height,
-            shapes: Vec::new(),
+            data_points: Vec::new(),
+            appearance: Vec::new(),
             canvas: BrailleCanvas::new(width, height),
         }
     }
@@ -114,14 +109,7 @@ impl<'a> Chart<'a> {
     /// # Panics
     ///
     /// Panics if `width` or `height` is less than 32.
-    pub fn new_with_y_range(
-        width: u32,
-        height: u32,
-        xmin: f32,
-        xmax: f32,
-        ymin: f32,
-        ymax: f32,
-    ) -> Self {
+    pub fn with_range(width: u32, height: u32, xmin: f32, xmax: f32, ymin: f32, ymax: f32) -> Self {
         if width < 32 {
             panic!("width should be more then 32, {} is provided", width);
         }
@@ -139,7 +127,8 @@ impl<'a> Chart<'a> {
             y_ranging: ChartRangeMethod::FixedRange,
             width,
             height,
-            shapes: Vec::new(),
+            data_points: Vec::new(),
+            appearance: Vec::new(),
             canvas: BrailleCanvas::new(width, height),
         }
     }
@@ -221,41 +210,33 @@ impl<'a> Chart<'a> {
 
     // Show figures.
     pub fn figures(&mut self) {
-        for (shape, color) in &self.shapes {
+        for (shape, color) in &self.appearance {
             let x_scale = Scale::new(self.xmin..self.xmax, 0.0..self.width as f32);
             let y_scale = Scale::new(self.ymin..self.ymax, 0.0..self.height as f32);
 
             // translate (x, y) points into screen coordinates
-            let points: Vec<_> = match shape {
-                Shape::Continuous(f) => (0..self.width)
-                    .filter_map(|i| {
-                        let x = x_scale.inv_linear(i as f32);
-                        let y = f(x);
-                        if y.is_normal() {
-                            let j = y_scale.linear(y).round();
-                            Some((i, self.height - j as u32))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect(),
-                Shape::Points(dt) | Shape::Lines(dt) | Shape::Steps(dt) | Shape::Bars(dt) => dt
-                    .iter()
-                    .filter_map(|(x, y)| {
-                        let i = x_scale.linear(*x).round() as u32;
-                        let j = y_scale.linear(*y).round() as u32;
-                        if i <= self.width && j <= self.height {
-                            Some((i, self.height - j))
-                        } else {
-                            None
-                        }
-                    })
-                    .collect(),
-            };
+            let points: Vec<_> = self
+                .data_points
+                .iter()
+                .filter_map(|(x, y)| {
+                    let i = x_scale.linear(*x).round() as u32;
+                    let j = y_scale.linear(*y).round() as u32;
+                    if i <= self.width && j <= self.height {
+                        Some((i, self.height - j))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
 
             // display segments
             match shape {
-                Shape::Continuous(_) | Shape::Lines(_) => {
+                Shape::Points => {
+                    for (x, y) in points {
+                        self.canvas.set(x, y);
+                    }
+                }
+                Shape::Lines => {
                     for pair in points.windows(2) {
                         let (x1, y1) = pair[0];
                         let (x2, y2) = pair[1];
@@ -267,12 +248,7 @@ impl<'a> Chart<'a> {
                         }
                     }
                 }
-                Shape::Points(_) => {
-                    for (x, y) in points {
-                        self.canvas.set(x, y);
-                    }
-                }
-                Shape::Steps(_) => {
+                Shape::Steps => {
                     for pair in points.windows(2) {
                         let (x1, y1) = pair[0];
                         let (x2, y2) = pair[1];
@@ -287,7 +263,7 @@ impl<'a> Chart<'a> {
                         }
                     }
                 }
-                Shape::Bars(_) => {
+                Shape::Bars => {
                     for pair in points.windows(2) {
                         let (x1, y1) = pair[0];
                         let (x2, y2) = pair[1];
@@ -319,29 +295,17 @@ impl<'a> Chart<'a> {
         // rescale ymin and ymax
         let x_scale = Scale::new(self.xmin..self.xmax, 0.0..self.width as f32);
 
-        let ys: Vec<_> = match shape {
-            Shape::Continuous(f) => (0..self.width)
-                .filter_map(|i| {
-                    let x = x_scale.inv_linear(i as f32);
-                    let y = f(x);
-                    if y.is_normal() {
-                        Some(y)
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-            Shape::Points(dt) | Shape::Lines(dt) | Shape::Steps(dt) | Shape::Bars(dt) => dt
-                .iter()
-                .filter_map(|(x, y)| {
-                    if *x >= self.xmin && *x <= self.xmax {
-                        Some(*y)
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-        };
+        let ys: Vec<_> = self
+            .data_points
+            .iter()
+            .filter_map(|(x, y)| {
+                if *x >= self.xmin && *x <= self.xmax {
+                    Some(*y)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let ymax = *ys
             .iter()
@@ -357,22 +321,19 @@ impl<'a> Chart<'a> {
     }
 }
 
-impl<'a> ColorPlot<'a> for Chart<'a> {
-    fn linecolorplot(&'a mut self, shape: &'a Shape, color: RGB8) -> &'a mut Chart {
-        self.shapes.push((shape, Some(color)));
+impl<'a> Plot<'a> for Chart {
+    fn lineplot(&'a mut self, shape: Shape, color: Option<RGB8>) -> &'a mut Chart {
+        self.appearance.push((shape.clone(), color));
         if self.y_ranging == ChartRangeMethod::AutoRange {
-            self.rescale(shape);
+            self.rescale(&shape);
         }
         self
     }
 }
 
-impl<'a> Plot<'a> for Chart<'a> {
-    fn lineplot(&'a mut self, shape: &'a Shape) -> &'a mut Chart {
-        self.shapes.push((shape, None));
-        if self.y_ranging == ChartRangeMethod::AutoRange {
-            self.rescale(shape);
-        }
+impl<'a> Data<'a> for Chart {
+    fn data(&'a mut self, data_points: Vec<(f32, f32)>) -> &'a mut Chart {
+        self.data_points = data_points;
         self
     }
 }
