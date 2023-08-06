@@ -2,8 +2,21 @@
 name = "conplot"
 version = "0.1.0"
 edition = "2021"
+authors = ["PraxTube"]
+description = "Library for plotting charts in console"
+repository = "https://github.com/PraxTube/conplot"
+readme = "README.md"
+
+license = "MIT"
+
+keywords = ["plotting", "charts", "command-line"]
+categories = ["visualization", "graphics"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 drawille = "0.3.0"
+
+[lib]
+name = "conplot"
+path = "src/lib.rs"

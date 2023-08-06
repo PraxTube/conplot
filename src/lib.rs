@@ -65,6 +65,8 @@ pub struct Chart {
     data_points: Vec<(f32, f32)>,
     /// Collection of shapes to be presented on the canvas.
     appearance: Vec<(Shape, Option<RGB8>)>,
+    /// If true, show x and y axis
+    show_axis: bool,
     /// Underlying canvas object.
     canvas: BrailleCanvas,
 }
@@ -82,6 +84,8 @@ pub enum Shape {
 pub trait Plot<'a> {
     /// Draws a [line chart](https://en.wikipedia.org/wiki/Line_chart) of points connected by straight line segments.
     fn lineplot(&'a mut self, shape: Shape, color: Option<RGB8>) -> &'a mut Chart;
+    /// Hides the x and y axis.
+    fn hide_axis(&'a mut self) -> &'a mut Chart;
 }
 
 pub trait Data<'a> {
@@ -120,6 +124,7 @@ impl<'a> Chart {
             height,
             data_points: Vec::new(),
             appearance: Vec::new(),
+            show_axis: true,
             canvas: BrailleCanvas::new(width, height),
         }
     }
@@ -149,6 +154,7 @@ impl<'a> Chart {
             height,
             data_points: Vec::new(),
             appearance: Vec::new(),
+            show_axis: true,
             canvas: BrailleCanvas::new(width, height),
         }
     }
@@ -188,9 +194,16 @@ impl<'a> Chart {
 
     pub fn to_string(&mut self) -> String {
         self.figures();
-        self.axis();
 
         let mut frame = self.canvas.frame();
+        if self.show_axis {
+            self.null_axis();
+            self.show_num_label(&mut frame);
+        }
+        frame
+    }
+
+    fn show_num_label(&mut self, frame: &mut String) {
         if let Some(idx) = frame.find('\n') {
             frame.insert_str(idx, &format!(" {0:.1}", self.ymax));
             frame.push_str(&format!(
@@ -201,7 +214,6 @@ impl<'a> Chart {
                 width = (self.width as usize) / 2 - 3
             ));
         }
-        frame
     }
 
     /// Prints canvas content.
@@ -215,8 +227,8 @@ impl<'a> Chart {
         self.display();
     }
 
-    /// Show axis.
-    pub fn axis(&mut self) {
+    /// Show axis at x = 0 and y = 0 if in view
+    pub fn null_axis(&mut self) {
         let x_scale = Scale::new(self.xmin..self.xmax, 0.0..self.width as f32);
         let y_scale = Scale::new(self.ymin..self.ymax, 0.0..self.height as f32);
 
@@ -225,6 +237,15 @@ impl<'a> Chart {
         }
         if self.ymin <= 0.0 && self.ymax >= 0.0 {
             self.hline(y_scale.linear(0.0) as u32);
+        }
+    }
+
+    fn render_line(&mut self, x1: u32, y1: u32, x2: u32, y2: u32, color: &Option<RGB8>) {
+        if let Some(color) = color {
+            let color = rgb_to_pixelcolor(color);
+            self.canvas.line_colored(x1, y1, x2, y2, color);
+        } else {
+            self.canvas.line(x1, y1, x2, y2);
         }
     }
 
@@ -258,27 +279,15 @@ impl<'a> Chart {
                 for pair in points.windows(2) {
                     let (x1, y1) = pair[0];
                     let (x2, y2) = pair[1];
-                    if let Some(color) = color {
-                        let color = rgb_to_pixelcolor(color);
-                        self.canvas.line_colored(x1, y1, x2, y2, color);
-                    } else {
-                        self.canvas.line(x1, y1, x2, y2);
-                    }
+                    self.render_line(x1, y1, x2, y2, color);
                 }
             }
             Shape::Steps => {
                 for pair in points.windows(2) {
                     let (x1, y1) = pair[0];
                     let (x2, y2) = pair[1];
-
-                    if let Some(color) = color {
-                        let color = rgb_to_pixelcolor(color);
-                        self.canvas.line_colored(x1, y2, x2, y2, color);
-                        self.canvas.line_colored(x1, y1, x1, y2, color);
-                    } else {
-                        self.canvas.line(x1, y2, x2, y2);
-                        self.canvas.line(x1, y1, x1, y2);
-                    }
+                    self.render_line(x1, y2, x2, y2, color);
+                    self.render_line(x1, y1, x1, y2, color);
                 }
             }
             Shape::Bars => {
@@ -286,18 +295,10 @@ impl<'a> Chart {
                     let (x1, y1) = pair[0];
                     let (x2, y2) = pair[1];
 
-                    if let Some(color) = color {
-                        let color = rgb_to_pixelcolor(color);
-                        self.canvas.line_colored(x1, y2, x2, y2, color);
-                        self.canvas.line_colored(x1, y1, x1, y2, color);
-                        self.canvas.line_colored(x1, self.height, x1, y1, color);
-                        self.canvas.line_colored(x2, self.height, x2, y2, color);
-                    } else {
-                        self.canvas.line(x1, y2, x2, y2);
-                        self.canvas.line(x1, y1, x1, y2);
-                        self.canvas.line(x1, self.height, x1, y1);
-                        self.canvas.line(x2, self.height, x2, y2);
-                    }
+                    self.render_line(x1, y2, x2, y2, color);
+                    self.render_line(x1, y1, x1, y2, color);
+                    self.render_line(x1, self.height, x1, y1, color);
+                    self.render_line(x2, self.height, x2, y2, color);
                 }
             }
         }
@@ -357,6 +358,11 @@ impl<'a> Plot<'a> for Chart {
         if self.y_ranging == ChartRangeMethod::AutoRange {
             self.rescale_y();
         }
+        self
+    }
+
+    fn hide_axis(&'a mut self) -> &'a mut Chart {
+        self.show_axis = false;
         self
     }
 }
