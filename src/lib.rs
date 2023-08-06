@@ -7,6 +7,7 @@ pub mod scale;
 
 use scale::Scale;
 
+#[derive(Clone)]
 pub struct RGB8 {
     pub r: u8,
     pub g: u8,
@@ -227,81 +228,85 @@ impl<'a> Chart {
         }
     }
 
-    // Show figures.
-    pub fn figures(&mut self) {
-        for (shape, color) in &self.appearance {
-            let x_scale = Scale::new(self.xmin..self.xmax, 0.0..self.width as f32);
-            let y_scale = Scale::new(self.ymin..self.ymax, 0.0..self.height as f32);
+    fn figure(&mut self, shape: &Shape, color: &Option<RGB8>) {
+        let x_scale = Scale::new(self.xmin..self.xmax, 0.0..self.width as f32);
+        let y_scale = Scale::new(self.ymin..self.ymax, 0.0..self.height as f32);
 
-            // translate (x, y) points into screen coordinates
-            let points: Vec<_> = self
-                .data_points
-                .iter()
-                .filter_map(|(x, y)| {
-                    let i = x_scale.linear(*x).round() as u32;
-                    let j = y_scale.linear(*y).round() as u32;
-                    if i <= self.width && j <= self.height {
-                        Some((i, self.height - j))
+        // translate (x, y) points into screen coordinates
+        let points: Vec<_> = self
+            .data_points
+            .iter()
+            .filter_map(|(x, y)| {
+                let i = x_scale.linear(*x).round() as u32;
+                let j = y_scale.linear(*y).round() as u32;
+                if i <= self.width && j <= self.height {
+                    Some((i, self.height - j))
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        // display segments
+        match shape {
+            Shape::Points => {
+                for (x, y) in points {
+                    self.canvas.set(x, y);
+                }
+            }
+            Shape::Lines => {
+                for pair in points.windows(2) {
+                    let (x1, y1) = pair[0];
+                    let (x2, y2) = pair[1];
+                    if let Some(color) = color {
+                        let color = rgb_to_pixelcolor(color);
+                        self.canvas.line_colored(x1, y1, x2, y2, color);
                     } else {
-                        None
-                    }
-                })
-                .collect();
-
-            // display segments
-            match shape {
-                Shape::Points => {
-                    for (x, y) in points {
-                        self.canvas.set(x, y);
-                    }
-                }
-                Shape::Lines => {
-                    for pair in points.windows(2) {
-                        let (x1, y1) = pair[0];
-                        let (x2, y2) = pair[1];
-                        if let Some(color) = color {
-                            let color = rgb_to_pixelcolor(color);
-                            self.canvas.line_colored(x1, y1, x2, y2, color);
-                        } else {
-                            self.canvas.line(x1, y1, x2, y2);
-                        }
-                    }
-                }
-                Shape::Steps => {
-                    for pair in points.windows(2) {
-                        let (x1, y1) = pair[0];
-                        let (x2, y2) = pair[1];
-
-                        if let Some(color) = color {
-                            let color = rgb_to_pixelcolor(color);
-                            self.canvas.line_colored(x1, y2, x2, y2, color);
-                            self.canvas.line_colored(x1, y1, x1, y2, color);
-                        } else {
-                            self.canvas.line(x1, y2, x2, y2);
-                            self.canvas.line(x1, y1, x1, y2);
-                        }
-                    }
-                }
-                Shape::Bars => {
-                    for pair in points.windows(2) {
-                        let (x1, y1) = pair[0];
-                        let (x2, y2) = pair[1];
-
-                        if let Some(color) = color {
-                            let color = rgb_to_pixelcolor(color);
-                            self.canvas.line_colored(x1, y2, x2, y2, color);
-                            self.canvas.line_colored(x1, y1, x1, y2, color);
-                            self.canvas.line_colored(x1, self.height, x1, y1, color);
-                            self.canvas.line_colored(x2, self.height, x2, y2, color);
-                        } else {
-                            self.canvas.line(x1, y2, x2, y2);
-                            self.canvas.line(x1, y1, x1, y2);
-                            self.canvas.line(x1, self.height, x1, y1);
-                            self.canvas.line(x2, self.height, x2, y2);
-                        }
+                        self.canvas.line(x1, y1, x2, y2);
                     }
                 }
             }
+            Shape::Steps => {
+                for pair in points.windows(2) {
+                    let (x1, y1) = pair[0];
+                    let (x2, y2) = pair[1];
+
+                    if let Some(color) = color {
+                        let color = rgb_to_pixelcolor(color);
+                        self.canvas.line_colored(x1, y2, x2, y2, color);
+                        self.canvas.line_colored(x1, y1, x1, y2, color);
+                    } else {
+                        self.canvas.line(x1, y2, x2, y2);
+                        self.canvas.line(x1, y1, x1, y2);
+                    }
+                }
+            }
+            Shape::Bars => {
+                for pair in points.windows(2) {
+                    let (x1, y1) = pair[0];
+                    let (x2, y2) = pair[1];
+
+                    if let Some(color) = color {
+                        let color = rgb_to_pixelcolor(color);
+                        self.canvas.line_colored(x1, y2, x2, y2, color);
+                        self.canvas.line_colored(x1, y1, x1, y2, color);
+                        self.canvas.line_colored(x1, self.height, x1, y1, color);
+                        self.canvas.line_colored(x2, self.height, x2, y2, color);
+                    } else {
+                        self.canvas.line(x1, y2, x2, y2);
+                        self.canvas.line(x1, y1, x1, y2);
+                        self.canvas.line(x1, self.height, x1, y1);
+                        self.canvas.line(x2, self.height, x2, y2);
+                    }
+                }
+            }
+        }
+    }
+
+    // Show figures.
+    pub fn figures(&mut self) {
+        for (shape, color) in self.appearance.clone() {
+            self.figure(&shape, &color)
         }
     }
 
