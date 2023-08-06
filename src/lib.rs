@@ -1,4 +1,3 @@
-use std::cmp;
 use std::default::Default;
 
 use drawille::Canvas as BrailleCanvas;
@@ -12,6 +11,26 @@ pub struct RGB8 {
     pub r: u8,
     pub g: u8,
     pub b: u8,
+}
+
+impl RGB8 {
+    pub fn new(r: u8, g: u8, b: u8) -> RGB8 {
+        RGB8 { r, g, b }
+    }
+
+    pub fn new_hex_str(hex_str: &str) -> RGB8 {
+        fn str_to_u8(hex_str: &str) -> u8 {
+            u8::from_str_radix(&hex_str, 16).unwrap()
+        }
+        if hex_str.chars().count() < 6 || hex_str.chars().count() > 7 {
+            panic!("Length of hex string must be 6 or 7, {}", hex_str);
+        }
+        let hex_str = hex_str.replace("#", "");
+        let r = str_to_u8(&hex_str[0..2]);
+        let g = str_to_u8(&hex_str[2..4]);
+        let b = str_to_u8(&hex_str[4..6]);
+        RGB8 { r, g, b }
+    }
 }
 
 /// How the chart will do the ranging on axes
@@ -70,7 +89,7 @@ pub trait Data<'a> {
 
 impl<'a> Default for Chart {
     fn default() -> Self {
-        Self::new(120, 60, -10.0, 10.0)
+        Self::new(120, 60)
     }
 }
 
@@ -80,7 +99,7 @@ impl<'a> Chart {
     /// # Panics
     ///
     /// Panics if `width` or `height` is less than 32.
-    pub fn new(width: u32, height: u32, xmin: f32, xmax: f32) -> Self {
+    pub fn new(width: u32, height: u32) -> Self {
         if width < 32 {
             panic!("width should be more then 32, {} is provided", width);
         }
@@ -90,8 +109,8 @@ impl<'a> Chart {
         }
 
         Self {
-            xmin,
-            xmax,
+            xmin: f32::INFINITY,
+            xmax: f32::NEG_INFINITY,
             x_ranging: ChartRangeMethod::AutoRange,
             ymin: f32::INFINITY,
             ymax: f32::NEG_INFINITY,
@@ -121,7 +140,7 @@ impl<'a> Chart {
         Self {
             xmin,
             xmax,
-            x_ranging: ChartRangeMethod::AutoRange,
+            x_ranging: ChartRangeMethod::FixedRange,
             ymin,
             ymax,
             y_ranging: ChartRangeMethod::FixedRange,
@@ -291,30 +310,33 @@ impl<'a> Chart {
         self.canvas.frame()
     }
 
-    fn rescale(&mut self, shape: &Shape) {
-        // rescale ymin and ymax
-        let x_scale = Scale::new(self.xmin..self.xmax, 0.0..self.width as f32);
-
-        let ys: Vec<_> = self
+    fn rescale_x(&mut self) {
+        let xmin = self
             .data_points
             .iter()
-            .filter_map(|(x, y)| {
-                if *x >= self.xmin && *x <= self.xmax {
-                    Some(*y)
-                } else {
-                    None
-                }
-            })
-            .collect();
+            .map(|&(x, _)| x)
+            .fold(f32::INFINITY, |min_x, x| min_x.min(x));
+        let xmax = self
+            .data_points
+            .iter()
+            .map(|&(x, _)| x)
+            .fold(f32::NEG_INFINITY, |max_x, x| max_x.max(x));
 
-        let ymax = *ys
+        self.xmin = f32::min(self.xmin, xmin);
+        self.xmax = f32::max(self.xmax, xmax);
+    }
+
+    fn rescale_y(&mut self) {
+        let ymin = self
+            .data_points
             .iter()
-            .max_by(|x, y| x.partial_cmp(y).unwrap_or(cmp::Ordering::Equal))
-            .unwrap_or(&0.0);
-        let ymin = *ys
+            .map(|&(_, y)| y)
+            .fold(f32::INFINITY, |min_y, y| min_y.min(y));
+        let ymax = self
+            .data_points
             .iter()
-            .min_by(|x, y| x.partial_cmp(y).unwrap_or(cmp::Ordering::Equal))
-            .unwrap_or(&0.0);
+            .map(|&(_, y)| y)
+            .fold(f32::NEG_INFINITY, |max_y, y| max_y.max(y));
 
         self.ymin = f32::min(self.ymin, ymin);
         self.ymax = f32::max(self.ymax, ymax);
@@ -324,8 +346,11 @@ impl<'a> Chart {
 impl<'a> Plot<'a> for Chart {
     fn lineplot(&'a mut self, shape: Shape, color: Option<RGB8>) -> &'a mut Chart {
         self.appearance.push((shape.clone(), color));
+        if self.x_ranging == ChartRangeMethod::AutoRange {
+            self.rescale_x();
+        }
         if self.y_ranging == ChartRangeMethod::AutoRange {
-            self.rescale(&shape);
+            self.rescale_y();
         }
         self
     }
