@@ -1,5 +1,5 @@
 use conplot::RGB8;
-use conplot::{Chart, Data, Plot, Shape};
+use conplot::{Chart, Plot, Shape};
 
 fn main() {
     let points = vec![(-5.0, 3.0), (3.3, 2.0), (10.0, 6.0)];

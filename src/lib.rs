@@ -82,14 +82,12 @@ pub enum Shape {
 
 /// Provides an interface for drawing plots.
 pub trait Plot<'a> {
+    /// Sets the data points that will be plotted
+    fn data(&'a mut self, data_points: Vec<(f32, f32)>) -> &'a mut Chart;
     /// Draws a [line chart](https://en.wikipedia.org/wiki/Line_chart) of points connected by straight line segments.
     fn lineplot(&'a mut self, shape: Shape, color: Option<RGB8>) -> &'a mut Chart;
     /// Hides the x and y axis.
     fn hide_axis(&'a mut self) -> &'a mut Chart;
-}
-
-pub trait Data<'a> {
-    fn data(&'a mut self, data_points: Vec<(f32, f32)>) -> &'a mut Chart;
 }
 
 impl<'a> Default for Chart {
@@ -350,6 +348,11 @@ impl<'a> Chart {
 }
 
 impl<'a> Plot<'a> for Chart {
+    fn data(&'a mut self, data_points: Vec<(f32, f32)>) -> &'a mut Chart {
+        self.data_points = data_points;
+        self
+    }
+
     fn lineplot(&'a mut self, shape: Shape, color: Option<RGB8>) -> &'a mut Chart {
         self.appearance.push((shape.clone(), color));
         if self.x_ranging == ChartRangeMethod::AutoRange {
@@ -363,13 +366,6 @@ impl<'a> Plot<'a> for Chart {
 
     fn hide_axis(&'a mut self) -> &'a mut Chart {
         self.show_axis = false;
-        self
-    }
-}
-
-impl<'a> Data<'a> for Chart {
-    fn data(&'a mut self, data_points: Vec<(f32, f32)>) -> &'a mut Chart {
-        self.data_points = data_points;
         self
     }
 }
