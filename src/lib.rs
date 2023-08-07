@@ -65,8 +65,12 @@ pub struct Chart {
     data_points: Vec<(f32, f32)>,
     /// Collection of shapes to be presented on the canvas.
     appearance: Vec<(Shape, Option<RGB8>)>,
-    /// If true, show x and y axis
+    /// If true, show x and y axis.
     show_axis: bool,
+    /// Function to apply to X-axis ticks.
+    xtick: Option<Box<dyn Fn(f32) -> String>>,
+    /// Function to apply to Y-axis ticks.
+    ytick: Option<Box<dyn Fn(f32) -> String>>,
     /// Underlying canvas object.
     canvas: BrailleCanvas,
 }
@@ -123,6 +127,8 @@ impl<'a> Chart {
             data_points: Vec::new(),
             appearance: Vec::new(),
             show_axis: true,
+            xtick: None,
+            ytick: None,
             canvas: BrailleCanvas::new(width, height),
         }
     }
@@ -153,6 +159,8 @@ impl<'a> Chart {
             data_points: Vec::new(),
             appearance: Vec::new(),
             show_axis: true,
+            xtick: None,
+            ytick: None,
             canvas: BrailleCanvas::new(width, height),
         }
     }
@@ -191,25 +199,31 @@ impl<'a> Chart {
     }
 
     pub fn to_string(&mut self) -> String {
+        if self.show_axis {
+            self.null_axis();
+        }
         self.figures();
 
         let mut frame = self.canvas.frame();
+
         if self.show_axis {
-            self.null_axis();
             self.show_num_label(&mut frame);
         }
         frame
     }
 
     fn show_num_label(&mut self, frame: &mut String) {
+        let xmin = self.format_xaxis_tick(self.xmin);
+        let xmax = self.format_xaxis_tick(self.xmax);
+
         if let Some(idx) = frame.find('\n') {
-            frame.insert_str(idx, &format!(" {0:.1}", self.ymax));
+            frame.insert_str(idx, &format!(" {}", self.format_yaxis_tick(self.ymax)));
             frame.push_str(&format!(
-                " {0:.1}\n{1: <width$.1}{2:.1}\n",
-                self.ymin,
-                self.xmin,
-                self.xmax,
-                width = (self.width as usize) / 2 - 3
+                " {0}\n{1: <width$}{2}\n",
+                self.format_yaxis_tick(self.ymin),
+                xmin,
+                xmax,
+                width = (self.width as usize) / 2 - xmax.chars().count(),
             ));
         }
     }
@@ -312,6 +326,34 @@ impl<'a> Chart {
     /// Return the frame.
     pub fn frame(&self) -> String {
         self.canvas.frame()
+    }
+
+    fn format_xaxis_tick(&self, value: f32) -> String {
+        if let Some(ref f) = self.xtick {
+            f(value)
+        } else {
+            format!("{:.1}", value)
+        }
+    }
+
+    fn format_yaxis_tick(&self, value: f32) -> String {
+        if let Some(ref f) = self.ytick {
+            f(value)
+        } else {
+            format!("{:.1}", value)
+        }
+    }
+
+    /// Sets the function for the X-axis ticks.
+    pub fn set_xtick<F: 'static + Fn(f32) -> String>(mut self, f: F) -> Self {
+        self.xtick = Some(Box::new(f));
+        self
+    }
+
+    /// Sets the function for the Y-axis ticks.
+    pub fn set_ytick<F: 'static + Fn(f32) -> String>(mut self, f: F) -> Self {
+        self.ytick = Some(Box::new(f));
+        self
     }
 
     fn rescale_x(&mut self) {
